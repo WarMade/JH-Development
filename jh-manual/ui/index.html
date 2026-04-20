@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="hud-wrapper">
+        <div id="rpm-container">
+            <div id="rpm-bar-fill"></div>
+        </div>
+        <div id="stall-warning" style="display:none;">STALLED</div>
+    </div>
+
+    <div id="settings-menu" style="display:none;">
+        <div class="menu-box">
+            <h3>TRANSMISSION SETTINGS</h3>
+            <button onclick="setMode('auto')">Automatic (Default)</button>
+            <button onclick="setMode('sequential')">Sequential (Paddle)</button>
+            <button onclick="setMode('manual')">Manual (Clutch Required)</button>
+            <button onclick="closeMenu()" class="exit-btn">BACK TO DRIVE</button>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

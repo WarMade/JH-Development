@@ -1,0 +1,134 @@
+/* ui/style.css - Minimal Manual Transmission HUD */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    color: white;
+    background: transparent;
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+}
+
+#hud-wrapper {
+    position: fixed;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 250px;
+    z-index: 100;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+/* Gear Indicator */
+.gear-indicator {
+    background: rgba(0, 0, 0, 0.6);
+    border: 3px solid #ff0000;
+    border-radius: 8px;
+    padding: 20px 35px;
+    margin-bottom: 10px;
+}
+
+#gear-text {
+    font-size: 72px;
+    font-weight: 900;
+    color: #00ff00;
+    text-shadow: 3px 3px 10px rgba(0, 0, 0, 0.8);
+}
+
+/* Stall Warning */
+#stall-warning {
+    margin-top: 10px;
+    font-family: 'Arial', sans-serif;
+    font-weight: bold;
+    color: #ff3b3b;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-align: center;
+    text-transform: uppercase;
+    display: none;
+}
+
+#stall-warning.active {
+    display: block;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* RPM Bar */
+.rpm-bar-bg,
+#rpm-container {
+    width: 100%;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#rpm-bar-fill {
+    width: 0%;
+    height: 100%;
+    background-color: #00ff8c;
+    transition: width 0.1s linear, background-color 0.2s ease;
+}
+
+#rpm-bar-fill.pulse {
+    animation: rpmPulse 0.35s infinite alternate;
+}
+
+@keyframes rpmPulse {
+    0% {
+        box-shadow: 0 0 4px rgba(255, 0, 0, 0.4);
+        filter: brightness(1);
+    }
+    100% {
+        box-shadow: 0 0 14px rgba(255, 0, 0, 0.95);
+        filter: brightness(1.25);
+    }
+}
+
+/* The Pulse Animation */
+@keyframes redline-flash {
+    0% { background-color: #ff3b3b; box-shadow: 0 0 5px #ff0000; }
+    50% { background-color: #ff8e8e; box-shadow: 0 0 15px #ff0000; }
+    100% { background-color: #ff3b3b; box-shadow: 0 0 5px #ff0000; }
+}
+
+.redline-active {
+    animation: redline-flash 0.15s infinite;
+}
+
+#settings-menu {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.menu-box {
+    background: #1a1a1a;
+    padding: 30px;
+    border-top: 4px solid #ff0000;
+    border-radius: 5px;
+}
