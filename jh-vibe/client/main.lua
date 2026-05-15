@@ -206,28 +206,55 @@ function EnterMotelRoom(motel)
 end
 
 function AttemptBeckon(ped, veh)
+    if workingPed then return end
     local playerPed = PlayerPedId()
     
-    -- 1. Visual "Inspection"
-    TaskLookAtEntity(ped, playerPed, 3000, 2048, 3)
-    TaskChatToPed(ped, playerPed, 16, 0.0, 0.0, 0.0, 0.0, 0.0) -- Leans into window
-    Wait(2000)
+    -- 1. Walk to the vehicle
+    TaskGoToEntity(ped, veh, -1, 1.0, 2.0, 1073741824, 0)
+    QBCore.Functions.Notify("She's coming over to check you out...", "primary")
+    
+    local arrived = false
+    local timeout = GetGameTimer() + 10000
+    while not arrived and GetGameTimer() < timeout do
+        Wait(500)
+        if #(GetEntityCoords(ped) - GetEntityCoords(veh)) < 2.5 then
+            arrived = true
+        end
+    end
 
-    -- 2. Financial Check
+    if not arrived then return end
+
+    -- 2. Visual "Inspection" / Lean In
+    TaskTurnPedToFaceEntity(ped, veh, 1000)
+    Wait(1000)
+    
+    RequestAnimDict("amb@prop_human_bum_shopping_cart@male@idle_a")
+    while not HasAnimDictLoaded("amb@prop_human_bum_shopping_cart@male@idle_a") do Wait(1) end
+    TaskPlayAnim(ped, "amb@prop_human_bum_shopping_cart@male@idle_a", "idle_c", 8.0, -8.0, -1, 1, 0, false, false, false)
+    
+    PlayAmbientSpeech1(ped, "SEX_GENERIC_HI", "SPEECH_PARAMS_FORCE_NORMAL")
+    Wait(3000)
+
+    -- 3. Financial Check
     QBCore.Functions.TriggerCallback('jh-vibe:server:CheckPockets', function(hasMoney)
+        StopAnimTask(ped, "amb@prop_human_bum_shopping_cart@male@idle_a", "idle_c", 1.0)
+        
         if not hasMoney then
             -- BROKE RESPONSE
             PlayAmbientSpeech1(ped, "SEX_STREET_WALKER_REJECT", "SPEECH_PARAMS_FORCE_NORMAL")
-            TaskPlayAnim(ped, "anim@mp_player_intupperface_palm", "idle_a", 8.0, -8.0, 2000, 48, 0, false, false, false)
+            
+            RequestAnimDict("anim@mp_player_intupperface_palm")
+            while not HasAnimDictLoaded("anim@mp_player_intupperface_palm") do Wait(1) end
+            TaskPlayAnim(ped, "anim@mp_player_intupperface_palm", "idle_a", 8.0, -8.0, 3000, 48, 0, false, false, false)
             
             QBCore.Functions.Notify("She laughs at your empty wallet.", "error")
             
-            Wait(1500)
-            TaskWanderStandard(ped, 10.0, 10) -- Leaves in disgust
+            Wait(3000)
+            TaskWanderStandard(ped, 10.0, 10)
             return
         end
 
-        -- 3. If NOT broke, proceed to Car/Chance evaluation
+        -- 4. If NOT broke, proceed to Car/Chance evaluation
         local chance = Config.BaseAcceptChance
         local vehClass = GetVehicleClass(veh)
 
@@ -240,17 +267,28 @@ function AttemptBeckon(ped, veh)
         local roll = math.random(1, 100)
         if roll <= chance then
             -- SUCCESS LOGIC
+            PlayAmbientSpeech1(ped, "SEX_STREET_WALKER_ACCEPT", "SPEECH_PARAMS_FORCE_NORMAL")
             QBCore.Functions.Notify("She likes the ride. She's in.", "success")
-            TaskPlayAnim(ped, "anim@mp_player_intupperthumbs_up", "exit", 8.0, -8.0, 1500, 48, 0, false, false, false)
-            Wait(1500)
+            
+            RequestAnimDict("anim@mp_player_intupperthumbs_up")
+            while not HasAnimDictLoaded("anim@mp_player_intupperthumbs_up") do Wait(1) end
+            TaskPlayAnim(ped, "anim@mp_player_intupperthumbs_up", "exit", 8.0, -8.0, 2000, 48, 0, false, false, false)
+            
+            Wait(2000)
             TaskEnterVehicle(ped, veh, -1, 0, 1.0, 1, 0)
             workingPed = ped
             SetEntityAsMissionEntity(ped, true, true)
-            ManageMotelBlips(true) -- GPS UPDATED
+            ManageMotelBlips(true)
         else
             -- REJECTION LOGIC
-            TaskPlayAnim(ped, "anim@mp_player_intupperfinger", "idle_a", 8.0, -8.0, 2000, 48, 0, false, false, false)
+            PlayAmbientSpeech1(ped, "SEX_STREET_WALKER_REJECT", "SPEECH_PARAMS_FORCE_NORMAL")
+            
+            RequestAnimDict("anim@mp_player_intupperfinger")
+            while not HasAnimDictLoaded("anim@mp_player_intupperfinger") do Wait(1) end
+            TaskPlayAnim(ped, "anim@mp_player_intupperfinger", "idle_a", 8.0, -8.0, 3000, 48, 0, false, false, false)
+            
             QBCore.Functions.Notify("You're not her type.", "error")
+            Wait(3000)
             TaskWanderStandard(ped, 10.0, 10)
         end
     end)
