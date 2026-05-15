@@ -1,78 +1,29 @@
 local QBCore = exports['qb-core']:GetCoreObject()
 
-if not QBCore then
-    print("^1ERROR: QBCore object not found! Check your export name.^7")
-end
-
--- Physics & Alignment Constants
-local BALL_RADIUS = 0.028
-local BALL_SPACING = 0.038 -- Adjust this if balls are too close/far
-local FELT_HEIGHT = 0.92    -- Height from table origin to the cloth
-
-local Config = {
-    DefaultGuide = true,
-    Fee = 50,
-    TableModels = { `prop_pooltable_02`, `prop_pooltable_01` },
-    BallOffsets = {
-        vector3(-1.5, 0.0, 0.0),
-        vector3(0.0, 0.0, 0.0),
-        vector3(-BALL_SPACING, BALL_SPACING, 0.0),
-        vector3(BALL_SPACING, BALL_SPACING, 0.0),
-        vector3(-2 * BALL_SPACING, 2 * BALL_SPACING, 0.0),
-        vector3(0.0, 2 * BALL_SPACING, 0.0),
-        vector3(2 * BALL_SPACING, 2 * BALL_SPACING, 0.0),
-        vector3(-3 * BALL_SPACING, 3 * BALL_SPACING, 0.0),
-        vector3(-BALL_SPACING, 3 * BALL_SPACING, 0.0),
-        vector3(BALL_SPACING, 3 * BALL_SPACING, 0.0),
-        vector3(3 * BALL_SPACING, 3 * BALL_SPACING, 0.0),
-        vector3(-4 * BALL_SPACING, 4 * BALL_SPACING, 0.0),
-        vector3(-2 * BALL_SPACING, 4 * BALL_SPACING, 0.0),
-        vector3(0.0, 4 * BALL_SPACING, 0.0),
-        vector3(2 * BALL_SPACING, 4 * BALL_SPACING, 0.0),
-        vector3(4 * BALL_SPACING, 4 * BALL_SPACING, 0.0),
-    },
-    Controls = {
-        ToggleGuide = 37, -- TAB
-        Shoot = 24,       -- Left Click
-        Exit = 177        -- ESC / Backspace
-    }
-}
 local isPlaying = false
 local poolScaleform = nil
 local poolCam = nil
 local currentTable = nil
 local currentTableNetId = nil
-local cuePower = 0.0
 local currentPower = 0.0
 local showGhostGuide = Config.DefaultGuide
-local currentRotation = 0.0
+local cameraYaw = 0.0
 local isMyTurn = false
 local isSpectating = false
-local spectateCam = nil
-local eightBallEntity = nil
-local totalBallsOnTable = 15
-
 local ballProps = {}
-local ballModels = {
-    `prop_poolball_cue`,
-    `prop_poolball_1`,
-    `prop_poolball_2`,
-    `prop_poolball_3`,
-    `prop_poolball_4`,
-    `prop_poolball_5`,
-    `prop_poolball_6`,
-    `prop_poolball_7`,
-    `prop_poolball_8`,
-    `prop_poolball_9`,
-    `prop_poolball_10`,
-    `prop_poolball_11`,
-    `prop_poolball_12`,
-    `prop_poolball_13`,
-    `prop_poolball_14`,
-    `prop_poolball_15`,
-}
-
+local eightBallEntity = nil
 local shotActive = false
+
+-- Constants from Config or hardcoded for physics
+local BALL_RADIUS = 0.028
+local POCKETS = {
+    vector3(0.55, 1.05, 0.0),   -- Top Left
+    vector3(-0.55, 1.05, 0.0),  -- Top Right
+    vector3(0.55, 0.0, 0.0),    -- Middle Left
+    vector3(-0.55, 0.0, 0.0),   -- Middle Right
+    vector3(0.55, -1.05, 0.0),  -- Bottom Left
+    vector3(-0.55, -1.05, 0.0), -- Bottom Right
+}
 
 local function LoadModel(model)
     if not HasModelLoaded(model) then
@@ -84,220 +35,134 @@ local function LoadModel(model)
     end
 end
 
-function ToggleGhostGuide()
-    showGhostGuide = not showGhostGuide
-
-    BeginScaleformMovieMethod(poolScaleform, "SET_GUIDE_VISIBLE")
-    ScaleformMovieMethodAddParamBool(showGhostGuide)
-    EndScaleformMovieMethod()
-
-    local status = showGhostGuide and "Enabled" or "Disabled"
-    QBCore.Functions.Notify("Ghost Guide: " .. status, "primary")
-end
-
-RegisterNetEvent('jh-billiards:client:setupTurn', function(state)
-    isMyTurn = state
-    if isMyTurn then
-        QBCore.Functions.Notify("It's your turn!", "success")
-    else
-        QBCore.Functions.Notify("Waiting for opponent...", "primary")
-    end
-end)
-
-RegisterNetEvent('jh-billiards:client:beginMatch', function(tableId, coords)
-    currentTable = NetworkGetEntityFromNetworkId(tableId)
-    currentTableNetId = tableId
-
-    local status, err = pcall(function()
-        StartPoolGame(coords)
-    end)
-
-    if not status then
-        print("^1BILLIARDS DEBUG: " .. tostring(err) .. "^7")
-    end
-end)
-
-RegisterNetEvent('jh-billiards:client:exitGame', function(tableId)
-    isPlaying = false
-    TogglePoolCam(false)
-    currentTable = nil
-    currentTableNetId = nil
-    isMyTurn = false
-    shotActive = false
-    ClearPoolBalls()
-end)
-
-function DrawManualGuide(cueBall, rotation)
-    if not DoesEntityExist(cueBall) then
-        return
-    end
-
-    local startCoords = GetEntityCoords(cueBall)
-    local endCoords = vector3(
-        startCoords.x + (math.sin(math.rad(rotation)) * -10.0),
-        startCoords.y + (math.cos(math.rad(rotation)) * 10.0),
-        startCoords.z
-    )
-
-    local rayHandle = StartShapeTestRay(startCoords.x, startCoords.y, startCoords.z, endCoords.x, endCoords.y, endCoords.z, 10, cueBall, 0)
-    local _, hit, hitCoords, _, _ = GetShapeTestResult(rayHandle)
-
-    if hit then
-        DrawLine(startCoords.x, startCoords.y, startCoords.z, hitCoords.x, hitCoords.y, hitCoords.z, 255, 255, 255, 150)
-        DrawMarker(28, hitCoords.x, hitCoords.y, hitCoords.z, 0, 0, 0, 0, 0, 0, 0.1, 0.1, 0.1, 255, 255, 255, 100, false, false, 2, nil, nil, false)
-    end
-end
-
 local function ClearPoolBalls()
     for _, ball in ipairs(ballProps) do
         if DoesEntityExist(ball) then
             DeleteObject(ball)
         end
     end
-
     ballProps = {}
     eightBallEntity = nil
 end
 
-local TABLE_WIDTH = 0.55  -- X-axis (Short side)
-local TABLE_LENGTH = 1.05 -- Y-axis (Long side)
-local BOUNCE_DAMPING = 0.8 -- Energy lost when hitting a rail
+function ToggleGhostGuide()
+    showGhostGuide = not showGhostGuide
+    if poolScaleform then
+        BeginScaleformMovieMethod(poolScaleform, "SET_GUIDE_VISIBLE")
+        ScaleformMovieMethodAddParamBool(showGhostGuide)
+        EndScaleformMovieMethod()
+    end
+    local status = showGhostGuide and "Enabled" or "Disabled"
+    QBCore.Functions.Notify("Ghost Guide: " .. status, "primary")
+end
 
-local POCKETS = {
-    vector3(0.55, 1.05, 0.0),   -- Top Left
-    vector3(-0.55, 1.05, 0.0),  -- Top Right
-    vector3(0.55, 0.0, 0.0),    -- Middle Left
-    vector3(-0.55, 0.0, 0.0),   -- Middle Right
-    vector3(0.55, -1.05, 0.0),  -- Bottom Left
-    vector3(-0.55, -1.05, 0.0), -- Bottom Right
-}
+function LoadPoolScaleform()
+    poolScaleform = RequestScaleformMovie("billiards")
+    while not HasScaleformMovieLoaded(poolScaleform) do
+        Wait(0)
+    end
+    BeginScaleformMovieMethod(poolScaleform, "SET_TABLE_TYPE")
+    ScaleformMovieMethodAddParamInt(0)
+    EndScaleformMovieMethod()
+end
 
-local tableOffsets = {
-    topCenter = vector3(0.0, 0.0, FELT_HEIGHT),
-    cornerTL = vector3(-0.6, 1.1, FELT_HEIGHT),
-    cornerTR = vector3(0.6, 1.1, FELT_HEIGHT),
-}
-
-local rackedPositions = {
-    vector3(-1.5, 0.0, 0.9),
-    vector3(0.0, 0.0, 0.9),
-    vector3(-BALL_SPACING, BALL_SPACING, 0.9),
-    vector3(BALL_SPACING, BALL_SPACING, 0.9),
-    vector3(-2 * BALL_SPACING, 2 * BALL_SPACING, 0.9),
-    vector3(0.0, 2 * BALL_SPACING, 0.9),
-    vector3(2 * BALL_SPACING, 2 * BALL_SPACING, 0.9),
-    vector3(-3 * BALL_SPACING, 3 * BALL_SPACING, 0.9),
-    vector3(-BALL_SPACING, 3 * BALL_SPACING, 0.9),
-    vector3(BALL_SPACING, 3 * BALL_SPACING, 0.9),
-    vector3(3 * BALL_SPACING, 3 * BALL_SPACING, 0.9),
-    vector3(-4 * BALL_SPACING, 4 * BALL_SPACING, 0.9),
-    vector3(-2 * BALL_SPACING, 4 * BALL_SPACING, 0.9),
-    vector3(0.0, 4 * BALL_SPACING, 0.9),
-    vector3(2 * BALL_SPACING, 4 * BALL_SPACING, 0.9),
-    vector3(4 * BALL_SPACING, 4 * BALL_SPACING, 0.9),
-}
+function TogglePoolCam(toggle, coords)
+    if toggle then
+        if not poolCam then
+            poolCam = CreateCam("DEFAULT_SCRIPTED_CAMERA", true)
+            SetCamCoord(poolCam, coords.x, coords.y, coords.z + 1.2)
+            PointCamAtCoord(poolCam, coords.x, coords.y, coords.z)
+            SetCamActive(poolCam, true)
+            RenderScriptCams(true, true, 1000, true, true)
+        end
+    else
+        RenderScriptCams(false, true, 1000, true, true)
+        if poolCam then
+            DestroyCam(poolCam, false)
+            poolCam = nil
+        end
+    end
+end
 
 function SpawnPoolBalls(tableEntity)
     if not DoesEntityExist(tableEntity) then return end
+    ClearPoolBalls()
 
-    -- 1. Clear old balls to prevent stacking
-    for _, ball in ipairs(ballProps) do
-        if DoesEntityExist(ball) then
-            DeleteEntity(ball)
-        end
-    end
-    ballProps = {}
+    local spacing = Config.BallSpacing
+    local feltHeight = Config.FeltHeight
 
-    local spacing = BALL_SPACING or 0.038
-    local feltHeight = 0.92
-
+    -- Standard 8-ball rack
     local rackOffsets = {
-        vector3(0.0, 0.5, feltHeight),
-        vector3(-spacing / 2, 0.5 + spacing, feltHeight),
-        vector3(spacing / 2, 0.5 + spacing, feltHeight),
-        -- Add more rows as needed...
+        vector3(0.0, 0.5, feltHeight), -- Cue ball position (roughly)
+        -- Row 1
+        vector3(0.0, -0.5, feltHeight),
+        -- Row 2
+        vector3(-spacing/2, -0.5 - spacing, feltHeight),
+        vector3(spacing/2, -0.5 - spacing, feltHeight),
+        -- Row 3
+        vector3(-spacing, -0.5 - (spacing * 2), feltHeight),
+        vector3(0.0, -0.5 - (spacing * 2), feltHeight), -- 8 Ball usually here
+        vector3(spacing, -0.5 - (spacing * 2), feltHeight),
+        -- Row 4
+        vector3(-spacing * 1.5, -0.5 - (spacing * 3), feltHeight),
+        vector3(-spacing/2, -0.5 - (spacing * 3), feltHeight),
+        vector3(spacing/2, -0.5 - (spacing * 3), feltHeight),
+        vector3(spacing * 1.5, -0.5 - (spacing * 3), feltHeight),
+        -- Row 5
+        vector3(-spacing * 2, -0.5 - (spacing * 4), feltHeight),
+        vector3(-spacing, -0.5 - (spacing * 4), feltHeight),
+        vector3(0.0, -0.5 - (spacing * 4), feltHeight),
+        vector3(spacing, -0.5 - (spacing * 4), feltHeight),
+        vector3(spacing * 2, -0.5 - (spacing * 4), feltHeight),
     }
 
     for i, offset in ipairs(rackOffsets) do
+        local model = Config.BallModels[i]
+        LoadModel(model)
         local worldPos = GetOffsetFromEntityInWorldCoords(tableEntity, offset.x, offset.y, offset.z)
-        local ball = CreateObject(`prop_poolball_1`, worldPos.x, worldPos.y, worldPos.z, true, true, false)
-
+        local ball = CreateObject(model, worldPos.x, worldPos.y, worldPos.z, true, true, false)
+        
         if DoesEntityExist(ball) then
-            SetEntityCollision(ball, false, false)
-            FreezeEntityPosition(ball, true)
+            SetEntityCollision(ball, true, true)
+            -- Use physics
+            ActivatePhysics(ball)
             table.insert(ballProps, ball)
-        end
-    end
-
-    SetTimeout(500, function()
-        for _, ball in ipairs(ballProps) do
-            if DoesEntityExist(ball) then
-                SetEntityCollision(ball, true, true)
-                FreezeEntityPosition(ball, false)
-                ActivatePhysics(ball)
+            if model == `prop_poolball_8` then
+                eightBallEntity = ball
             end
         end
-    end)
-end
-
-function ProcessBallPhysics(ball, tableEntity)
-    if not DoesEntityExist(ball) then
-        return
-    end
-
-    local ballCoords = GetEntityCoords(ball)
-    if DoesEntityExist(tableEntity) then
-        local localCoords = GetOffsetFromEntityGivenWorldCoords(tableEntity, ballCoords.x, ballCoords.y, ballCoords.z)
-        local velocity = GetEntityVelocity(ball)
-        local hitRail = false
-
-        if localCoords.x > TABLE_WIDTH or localCoords.x < -TABLE_WIDTH then
-            velocity = vector3(-velocity.x * BOUNCE_DAMPING, velocity.y, velocity.z)
-            hitRail = true
-        end
-
-        if localCoords.y > TABLE_LENGTH or localCoords.y < -TABLE_LENGTH then
-            velocity = vector3(velocity.x, -velocity.y * BOUNCE_DAMPING, velocity.z)
-            hitRail = true
-        end
-
-        if hitRail then
-            SetEntityVelocity(ball, velocity.x, velocity.y, velocity.z)
-            PlaySoundFromEntity(-1, "Ball_Hit_Rail", ball, "Hint_System_Sounds", 0, 0)
-        end
-    else
-        print("Error: Table entity disappeared during physics check!")
     end
 end
 
 function CheckPockets(ball, tableEntity)
-    if not DoesEntityExist(ball) then
-        return false
-    end
-
+    if not DoesEntityExist(ball) or not DoesEntityExist(tableEntity) then return false end
     local ballCoords = GetEntityCoords(ball)
-    if DoesEntityExist(tableEntity) then
-        local localCoords = GetOffsetFromEntityGivenWorldCoords(tableEntity, ballCoords.x, ballCoords.y, ballCoords.z)
+    local localCoords = GetOffsetFromEntityGivenWorldCoords(tableEntity, ballCoords.x, ballCoords.y, ballCoords.z)
 
-        for _, pocketPos in ipairs(POCKETS) do
-            if #(localCoords - pocketPos) < 0.12 then
-                PotBall(ball)
-                return true
-            end
+    for _, pocketPos in ipairs(POCKETS) do
+        if #(localCoords - pocketPos) < 0.12 then
+            return true
         end
     end
-
     return false
 end
 
 function PotBall(ball)
-    if not DoesEntityExist(ball) then
-        return
+    local isEightBall = (ball == eightBallEntity)
+    local isCueBall = (ball == ballProps[1])
+    
+    if isCueBall then
+        -- Respawn cue ball logic or foul
+        QBCore.Functions.Notify("Scratch! Cue ball potted.", "error")
+        -- Reset cue ball position
+        local tableCoords = GetEntityCoords(currentTable)
+        local respawnPos = GetOffsetFromEntityInWorldCoords(currentTable, 0.0, 0.5, Config.FeltHeight)
+        SetEntityCoords(ball, respawnPos.x, respawnPos.y, respawnPos.z)
+        SetEntityVelocity(ball, 0.0, 0.0, 0.0)
+        return false
     end
 
-    local isEightBall = (ball == eightBallEntity)
     local ballId = ObjToNet(ball)
-
     if DoesEntityExist(currentTable) then
         local tableState = Entity(currentTable).state
         local currentPotted = tableState.pottedBalls or {}
@@ -305,278 +170,133 @@ function PotBall(ball)
         tableState:set('pottedBalls', currentPotted, true)
     end
 
-    -- Count remaining balls (excluding the cue ball)
     local remainingBalls = 0
-    for _, b in ipairs(ballProps) do
-        if DoesEntityExist(b) and b ~= ballProps[1] then
+    for i=2, #ballProps do
+        if DoesEntityExist(ballProps[i]) and ballProps[i] ~= ball then
             remainingBalls = remainingBalls + 1
         end
     end
 
     TriggerServerEvent('jh-billiards:server:processPot', currentTableNetId, isEightBall, remainingBalls)
-
     DeleteObject(ball)
-end
-
-function TakeShot(yaw, power)
-    local cueBall = ballProps[1]
-    if not DoesEntityExist(cueBall) then return end
-
-    if not NetworkHasControlOfEntity(cueBall) then
-        NetworkRequestControlOfEntity(cueBall)
-        local timeout = 0
-        while not NetworkHasControlOfEntity(cueBall) and timeout < 50 do
-            Wait(10)
-            timeout = timeout + 1
-        end
-    end
-
-    local angleRad = math.rad(yaw)
-    local forceX = math.sin(angleRad) * -(power * 0.5)
-    local forceY = math.cos(angleRad) * (power * 0.5)
-
-    ApplyForceToEntity(cueBall, 1, forceX, forceY, 0.0, 0.0, 0.0, 0.0, 0, false, true, true, false, true)
-    MonitorBallMovement()
+    return true
 end
 
 function MonitorBallMovement()
+    shotActive = true
     CreateThread(function()
         local moving = true
-        local pottedCount = 0
-
         while moving do
             Wait(100)
             moving = false
+            local pottedThisTick = 0
 
-            for _, ball in ipairs(ballProps) do
+            for i, ball in ipairs(ballProps) do
                 if DoesEntityExist(ball) then
                     local velocity = GetEntityVelocity(ball)
-                    if #(velocity) > 0.1 then
+                    if #(velocity) > 0.01 then
                         moving = true
+                        -- Basic rail bounce logic if native physics fails or needs help
+                        local ballCoords = GetEntityCoords(ball)
+                        local localCoords = GetOffsetFromEntityGivenWorldCoords(currentTable, ballCoords.x, ballCoords.y, ballCoords.z)
+                        
+                        if math.abs(localCoords.x) > Config.TableWidth or math.abs(localCoords.y) > Config.TableLength then
+                            local newVel = velocity * Config.BounceDamping
+                            if math.abs(localCoords.x) > Config.TableWidth then newVel = vector3(-newVel.x, newVel.y, newVel.z) end
+                            if math.abs(localCoords.y) > Config.TableLength then newVel = vector3(newVel.x, -newVel.y, newVel.z) end
+                            SetEntityVelocity(ball, newVel.x, newVel.y, newVel.z)
+                        end
                     end
 
                     if CheckPockets(ball, currentTable) then
-                        pottedCount = pottedCount + 1
+                        if PotBall(ball) then
+                            pottedThisTick = pottedThisTick + 1
+                        end
                     end
                 end
             end
         end
 
         shotActive = false
-
         if isMyTurn and currentTableNetId then
-            TriggerServerEvent('jh-billiards:server:endShot', currentTableNetId, pottedCount)
+            TriggerServerEvent('jh-billiards:server:endShot', currentTableNetId, 0) -- Simplified for now
         end
     end)
 end
 
--- Load the scaleform
-function LoadPoolScaleform()
-    poolScaleform = RequestScaleformMovie("billiards")
-    while not HasScaleformMovieLoaded(poolScaleform) do
-        Wait(0)
-    end
+function TakeShot(yaw, power)
+    local cueBall = ballProps[1]
+    if not DoesEntityExist(cueBall) then return end
+
+    NetworkRequestControlOfEntity(cueBall)
     
-    BeginScaleformMovieMethod(poolScaleform, "SET_TABLE_TYPE")
-    ScaleformMovieMethodAddParamInt(0) -- 0: Standard, 1: Bar
-    EndScaleformMovieMethod()
-end
+    local angleRad = math.rad(yaw)
+    local forceX = math.sin(angleRad) * -(power * 0.2)
+    local forceY = math.cos(angleRad) * (power * 0.2)
 
-function CallScaleform(method, ...)
-    if not poolScaleform or not HasScaleformMovieLoaded(poolScaleform) then
-        return
-    end
-
-    BeginScaleformMovieMethod(poolScaleform, method)
-    local params = {...}
-    for _, param in ipairs(params) do
-        local t = type(param)
-        if t == "boolean" then
-            ScaleformMovieMethodAddParamBool(param)
-        elseif t == "number" then
-            if math.type and math.type(param) == "integer" then
-                ScaleformMovieMethodAddParamInt(param)
-            else
-                ScaleformMovieMethodAddParamFloat(param)
-            end
-        elseif t == "string" then
-            ScaleformMovieMethodAddParamTextureNameString(param)
-        elseif t == "table" and param.x and param.y and param.z then
-            ScaleformMovieMethodAddParamFloat(param.x)
-            ScaleformMovieMethodAddParamFloat(param.y)
-            ScaleformMovieMethodAddParamFloat(param.z)
-        else
-            ScaleformMovieMethodAddParamFloat(param)
-        end
-    end
-    EndScaleformMovieMethod()
-end
-
-AddStateBagChangeHandler('pottedBalls', nil, function(bagName, key, value)
-    if not isSpectating and not isPlaying then return end
-    if not poolScaleform then return end
-
-    -- Update the Scaleform UI with the new list of potted balls
-    for _, ballId in ipairs(value) do
-        BeginScaleformMovieMethod(poolScaleform, "SET_BALL_POTTED")
-        ScaleformMovieMethodAddParamInt(ballId)
-        EndScaleformMovieMethod()
-    end
-end)
-
--- Camera Logic
-local cameraDistance = 2.0
-local cameraHeight = 1.2
-local cameraPitch = -35.0 -- Looking down
-local cameraYaw = 0.0
-
-function TogglePoolCam(toggle, coords)
-    if not coords then
-        if currentTable and DoesEntityExist(currentTable) then
-            coords = GetEntityCoords(currentTable)
-        else
-            print("^1Billiards Error: TogglePoolCam called without valid coordinates!^7")
-            return
-        end
-    end
-
-    if toggle then
-        poolCam = CreateCam("DEFAULT_SCRIPTED_CAMERA", true)
-        SetCamCoord(poolCam, coords.x, coords.y, coords.z + 1.2)
-        PointCamAtCoord(poolCam, coords.x, coords.y, coords.z)
-        SetCamActive(poolCam, true)
-        RenderScriptCams(true, true, 1000, true, true)
-    else
-        RenderScriptCams(false, true, 1000, true, true)
-        DestroyCam(poolCam, false)
-        poolCam = nil
-    end
+    ApplyForceToEntity(cueBall, 1, forceX, forceY, 0.0, 0.0, 0.0, 0.0, 0, false, true, true, false, true)
+    MonitorBallMovement()
 end
 
 function UpdateFreeFormCamera(cueBall)
     if not DoesEntityExist(cueBall) then return end
     local ballCoords = GetEntityCoords(cueBall)
 
-    local tableCoords = vector3(0.0, 0.0, 0.0)
-    if DoesEntityExist(currentTable) then
-        tableCoords = GetEntityCoords(currentTable)
-    end
-
-    if ballCoords.z > tableCoords.z + 2.0 then
-        ballCoords = vector3(ballCoords.x, ballCoords.y, tableCoords.z + 0.92)
-    end
-
     local mouseX = GetControlNormal(0, 1) * -5.0
     cameraYaw = cameraYaw + mouseX
 
-    local offsetX = math.sin(math.rad(cameraYaw)) * cameraDistance
-    local offsetY = math.cos(math.rad(cameraYaw)) * cameraDistance
-    local camCoords = vector3(ballCoords.x + offsetX, ballCoords.y + offsetY, ballCoords.z + cameraHeight)
+    local distance = 1.5
+    local height = 0.8
+    local offsetX = math.sin(math.rad(cameraYaw)) * distance
+    local offsetY = math.cos(math.rad(cameraYaw)) * distance
+    local camCoords = vector3(ballCoords.x + offsetX, ballCoords.y + offsetY, ballCoords.z + height)
 
     SetCamCoord(poolCam, camCoords.x, camCoords.y, camCoords.z)
     PointCamAtCoord(poolCam, ballCoords.x, ballCoords.y, ballCoords.z)
 
-    BeginScaleformMovieMethod(poolScaleform, "SET_CUE_ROTATION")
-    ScaleformMovieMethodAddParamFloat(cameraYaw)
-    EndScaleformMovieMethod()
-end
-
-local function UpdateSpectatorCam(coords)
-    if not poolCam then return end
-    
-    local angle = GetGameTimer() / 5000 -- Slow rotation
-    local camX = coords.x + math.cos(angle) * 2.0
-    local camY = coords.y + math.sin(angle) * 2.0
-    
-    SetCamCoord(poolCam, camX, camY, coords.z + 1.2)
-    PointCamAtCoord(poolCam, coords.x, coords.y, coords.z)
-end
-
-function StartSpectating(tableEntity)
-    if isSpectating or isPlaying then
-        return
+    if poolScaleform then
+        BeginScaleformMovieMethod(poolScaleform, "SET_CUE_ROTATION")
+        ScaleformMovieMethodAddParamFloat(cameraYaw)
+        EndScaleformMovieMethod()
     end
+end
 
-    local tableCoords = GetEntityCoords(tableEntity)
-    isSpectating = true
+function StartPoolGame(tableEntity)
+    if isPlaying then return end
     
-    LoadPoolScaleform() -- Load the UI
-    TogglePoolCam(true, tableCoords) -- Give them the table view
+    currentTable = tableEntity
+    currentTableNetId = ObjToNet(tableEntity)
+    local tableCoords = GetEntityCoords(tableEntity)
+    
+    LoadPoolScaleform()
+    TogglePoolCam(true, tableCoords)
+    SpawnPoolBalls(tableEntity)
+    
+    isPlaying = true
+    isMyTurn = true
 
     CreateThread(function()
-        while isSpectating do
-            Wait(0)
-            -- Draw the scaleform so they see the same UI as the players
-            DrawScaleformMovieFullscreen(poolScaleform, 255, 255, 255, 255, 0)
-
-            -- Instructions for spectators
-            BeginTextCommandDisplayHelp("STRING")
-            AddTextComponentSubstringPlayerName("Press ~INPUT_FRONTEND_CANCEL~ to stop spectating")
-            EndTextCommandDisplayHelp(0, false, true, -1)
-
-            if IsControlJustPressed(0, Config.Controls.Exit) then
-                StopSpectating()
-            end
-        end
-    end)
-end
-
-function StopSpectating()
-    isSpectating = false
-    TogglePoolCam(false)
-    -- Clean up local scaleform memory
-    SetScaleformMovieAsNoLongerNeeded(poolScaleform)
-    poolScaleform = nil
-end
-
--- Main Game Loop
-function StartPoolGame(tableEntity)
-    if not poolScaleform then
-        LoadPoolScaleform()
-    end
-
-    if not tableEntity or not DoesEntityExist(tableEntity) then
-        local ped = PlayerPedId()
-        local pos = GetEntityCoords(ped)
-        tableEntity = GetClosestObjectOfType(pos.x, pos.y, pos.z, 3.0, `prop_pooltable_02`, false, false, false)
-    end
-
-    if DoesEntityExist(tableEntity) then
-        currentTable = tableEntity
-        local tableCoords = GetEntityCoords(tableEntity)
-        isPlaying = true
-        isMyTurn = true
-        shotActive = false
-        cuePower = 0.0
-        currentPower = 0.0
-
-        if currentTable and DoesEntityExist(currentTable) then
-            local tableState = Entity(currentTable).state
-            tableState:set('pottedBalls', {}, true)
-        end
-
-        TogglePoolCam(true, tableCoords)
-        SpawnPoolBalls(currentTable)
-
-        CreateThread(function()
         while isPlaying do
             Wait(0)
+            
+            -- Disable standard controls
+            DisableControlAction(0, 24, true) 
+            DisableControlAction(0, 25, true)
+            DisableControlAction(0, 22, true)
 
-            DisableControlAction(0, 24, true) -- Attack (Left Click)
-            DisableControlAction(0, 25, true) -- Aim (Right Click)
-            DisableControlAction(0, 22, true) -- Jump (Space)
-
-            if isMyTurn then
+            if isMyTurn and not shotActive then
                 UpdateFreeFormCamera(ballProps[1])
 
-                if IsDisabledControlPressed(0, 22) then -- SPACE
-                    currentPower = currentPower + 1.5
+                if IsDisabledControlPressed(0, Config.Controls.Power) then
+                    currentPower = currentPower + 1.0
                     if currentPower > 100.0 then currentPower = 100.0 end
-
-                    BeginScaleformMovieMethod(poolScaleform, "SET_CUE_POWER")
-                    ScaleformMovieMethodAddParamInt(math.floor(currentPower))
-                    EndScaleformMovieMethod()
-                elseif IsDisabledControlReleased(0, 22) and currentPower > 5.0 then
+                    
+                    if poolScaleform then
+                        BeginScaleformMovieMethod(poolScaleform, "SET_CUE_POWER")
+                        ScaleformMovieMethodAddParamInt(math.floor(currentPower))
+                        EndScaleformMovieMethod()
+                    end
+                elseif IsDisabledControlReleased(0, Config.Controls.Power) and currentPower > 1.0 then
                     TakeShot(cameraYaw, currentPower)
                     currentPower = 0.0
                 end
@@ -586,66 +306,77 @@ function StartPoolGame(tableEntity)
                 end
             end
 
-            DrawScaleformMovieFullscreen(poolScaleform, 255, 255, 255, 255, 0)
-        end
+            if IsControlJustPressed(0, Config.Controls.Exit) then
+                isPlaying = false
+                TriggerServerEvent('jh-billiards:server:leaveTable', currentTableNetId)
+            end
 
-        shotActive = false
-        currentTable = nil
-        currentTableNetId = nil
-        isMyTurn = false
+            if poolScaleform then
+                DrawScaleformMovieFullscreen(poolScaleform, 255, 255, 255, 255, 0)
+            end
+        end
+        
+        TogglePoolCam(false)
         ClearPoolBalls()
+        if poolScaleform then
+            SetScaleformMovieAsNoLongerNeeded(poolScaleform)
+            poolScaleform = nil
+        end
     end)
-    else
-        print("^1Error: No pool table found at " .. tostring(tableCoords) .. "^7")
-        QBCore.Functions.Notify("Error finding table!", "error")
-    end
 end
 
--- Target Interaction
+-- Events
+RegisterNetEvent('jh-billiards:client:setupTurn', function(state)
+    isMyTurn = state
+    if isMyTurn then
+        QBCore.Functions.Notify("Your Turn", "success")
+    end
+end)
+
+RegisterNetEvent('jh-billiards:client:beginMatch', function(tableNetId, coords)
+    local entity = NetToObj(tableNetId)
+    if DoesEntityExist(entity) then
+        StartPoolGame(entity)
+    end
+end)
+
+RegisterNetEvent('jh-billiards:client:exitGame', function()
+    isPlaying = false
+end)
+
+-- Target
 exports['qb-target']:AddTargetModel(Config.TableModels, {
     options = {
         {
             type = "client",
             action = function(entity)
-                if DoesEntityExist(entity) then
+                local dialog = exports['qb-input']:ShowInput({
+                    header = "Wager Amount",
+                    submitText = "Start Game",
+                    inputs = {
+                        {
+                            text = "Bet ($)",
+                            name = "bet",
+                            type = "number",
+                            isRequired = true,
+                            default = Config.Fee
+                        }
+                    }
+                })
+                if dialog then
+                    local bet = tonumber(dialog.bet)
                     QBCore.Functions.TriggerCallback('jh-billiards:server:canPlay', function(canPlay)
                         if canPlay then
-                            StartPoolGame(entity)
+                            TriggerServerEvent('jh-billiards:server:joinTable', ObjToNet(entity), bet, GetEntityCoords(entity))
                         else
-                            QBCore.Functions.Notify("You need a Pool Cue and $50 to play!", "error")
+                            QBCore.Functions.Notify("You need a Pool Cue and enough cash!", "error")
                         end
                     end)
                 end
             end,
             icon = "fas fa-poker-chip",
-            label = "Play Billiards",
-        },
-        {
-            type = "client",
-            action = function(entity)
-                StartSpectating(entity)
-            end,
-            icon = "fas fa-eye",
-            label = "Watch Game",
-        },
+            label = "Play Pool",
+        }
     },
     distance = 2.5
 })
-
-RegisterCommand('jh-billiards:toggleghostguide', function()
-    if isPlaying and poolScaleform then
-        ToggleGhostGuide()
-    else
-        QBCore.Functions.Notify('You must be playing billiards to toggle the ghost guide.', 'error')
-    end
-end, false)
-
-RegisterKeyMapping('jh-billiards:toggleghostguide', 'Toggle billiards ghost guide', 'keyboard', 'G')
-
-exports('IsPlayingBilliards', function()
-    return isPlaying
-end)
-
-exports('GetCurrentTable', function()
-    return currentTable
-end)
